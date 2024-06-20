@@ -28,7 +28,60 @@ class Program
         //EntityCollection aggregateResult = CrmService.RetrieveMultiple(new FetchExpression(strFetchXML));
 
     }
+    static void work3()
+    {
+        string connectionString = "Server=myServerAddress;Database=myDataBase;User Id=myUsername;Password=myPassword;";
+        using (SqlConnection connection = new SqlConnection(connectionString))
+        {
+            try
+            {
+                connection.Open();
+                string sqlQuery = @"
+                        SELECT
+                            AnnotationId,
+                            FileName,
+                            DocumentBody,
+                            FileSize,
+                            MimeType,
+                            ObjectId,
+                            ObjectTypeCode,
+                            ObjectTypeCodeName
+                        FROM
+                            AnnotationBase
+                        WHERE
+                            IsDocument = 1";
 
+                using (SqlCommand command = new SqlCommand(sqlQuery, connection))
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    //SqlDataReader reader = command.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        string fileName = reader["FileName"].ToString();
+                        string documentBody = reader["DocumentBody"].ToString(); // Base64 encoded string
+                        byte[] fileContents = Convert.FromBase64String(documentBody);
+
+                        string safeFileName = SanitizeFileName(fileName);
+                        string fullPath = Path.Combine("YOUR_DESTINATION_FOLDER", safeFileName);
+                        File.WriteAllBytes(fullPath, fileContents);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("An error occurred: " + ex.Message);
+            }
+            finally
+            {
+                connection.Close();
+            }
+        }
+    }
+    static string SanitizeFileName(string fileName)
+    {
+        // Remove any invalid characters from the filename.
+        return string.Join("_", fileName.Split(Path.GetInvalidFileNameChars()));
+    }
 
 
 
