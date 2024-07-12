@@ -1,0 +1,77 @@
+using System;
+using System.Threading.Tasks;
+using Microsoft.PowerPlatform.Dataverse.Client;
+
+class Program
+{
+    private static async Task Main(string[] args)
+    {
+        string url = "https://YOUR_ORG.crm.dynamics.com";
+        string username = "YOUR_USERNAME";
+        string password = "YOUR_PASSWORD";
+
+        var serviceClient = new ServiceClient($"AuthType=OAuth;Url={url};Username={username};Password={password};RequireNewInstance=true;");
+
+        if (serviceClient.IsReady)
+        {
+            await GetFlowsAndFailedRuns(serviceClient);
+        }
+        else
+        {
+            Console.WriteLine("Failed to connect to Dataverse.");
+        }
+    }
+
+    private static async Task GetFlowsAndFailedRuns(ServiceClient serviceClient)
+    {
+        var query = new QueryExpression("workflow")
+        {
+            ColumnSet = new ColumnSet("name", "workflowid"),
+            Criteria = new FilterExpression
+            {
+                Conditions =
+                {
+                    new ConditionExpression("category", ConditionOperator.Equal, 5) // Category 5 corresponds to Power Automate Flows
+                }
+            }
+        };
+
+        var flows = serviceClient.RetrieveMultiple(query).Entities;
+
+        foreach (var flow in flows)
+        {
+            string flowName = flow.GetAttributeValue<string>("name");
+            Guid flowId = flow.GetAttributeValue<Guid>("workflowid");
+            await GetFlowRuns(serviceClient, flowId, flowName);
+        }
+    }
+
+    private static async Task GetFlowRuns(ServiceClient serviceClient, Guid flowId, string flowName)
+    {
+        var query = new QueryExpression("workflowlog")
+        {
+            ColumnSet = new ColumnSet("status", "createdon"),
+            Criteria = new FilterExpression
+            {
+                Conditions =
+                {
+                    new ConditionExpression("workflowid", ConditionOperator.Equal, flowId),
+                    new ConditionExpression("createdon", ConditionOperator.LastXHours, 24)
+                }
+            }
+        };
+
+        var runs = serviceClient.RetrieveMultiple(query).Entities;
+
+        foreach (var run in runs)
+        {
+            string status = run.GetAttributeValue<OptionSetValue>("status")?.Value.ToString();
+            DateTime createdOn = run.GetAttributeValue<DateTime>("createdon");
+
+            if (status == "Failed")
+            {
+                Console.WriteLine($"Flow {flowName} failed at {createdOn}");
+            }
+        }
+    }
+}
