@@ -1,0 +1,129 @@
+using System;
+using System.Linq;
+using Microsoft.Crm.Sdk.Messages;
+using Microsoft.PowerPlatform.Dataverse.Client;
+using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Query;
+
+class Program
+{
+    // TODO Enter your Dataverse environment's URL and logon info.
+    static string url = "https://yourorg.crm.dynamics.com";
+    static string userName = "you@yourorg.onmicrosoft.com";
+    static string password = "yourPassword";
+
+    // This service connection string uses the info provided above.
+    // The AppId and RedirectUri are provided for sample code testing.
+    static string connectionString = $@"
+    AuthType = OAuth;
+    Url = {url};
+    UserName = {userName};
+    Password = {password};
+    AppId = 51f81489-12ee-4a9e-aaae-a2591f45987d;
+    RedirectUri = app://58145B91-0C36-4500-8554-080854F2AC97;
+    LoginPrompt=Auto;
+    RequireNewInstance = True";
+
+    static void Main()
+    {
+        // ServiceClient implements IOrganizationService interface
+        IOrganizationService service = new ServiceClient(connectionString);
+
+        var response = (WhoAmIResponse)service.Execute(new WhoAmIRequest());
+
+        Console.WriteLine($"User ID is {response.UserId}.");
+
+        // Output all active flows
+        OutputAllActiveFlows(service);
+
+        // Pause the console so it does not close.
+        Console.WriteLine("Press the <Enter> key to exit.");
+        Console.ReadLine();
+    }
+
+    /// <summary>
+    /// Outputs all active flows and their run status in the past 24 hours
+    /// </summary>
+    /// <param name="service">Authenticated client implementing the IOrganizationService interface</param>
+    public static void OutputAllActiveFlows(IOrganizationService service)
+    {
+        var query = new QueryExpression("workflow")
+        {
+            ColumnSet = new ColumnSet("category",
+                                      "createdby",
+                                      "createdon",
+                                      "description",
+                                      "ismanaged",
+                                      "modifiedby",
+                                      "modifiedon",
+                                      "name",
+                                      "ownerid",
+                                      "statecode",
+                                      "type",
+                                      "workflowid",
+                                      "workflowidunique"),
+            Criteria = new FilterExpression(LogicalOperator.And)
+            {
+                Conditions = {
+                new ConditionExpression("category", ConditionOperator.Equal, 5), // Cloud Flow
+                new ConditionExpression("statecode", ConditionOperator.Equal, 1) // Active
+            }
+            }
+        };
+
+        EntityCollection workflows = service.RetrieveMultiple(query);
+
+        foreach (var workflow in workflows.Entities)
+        {
+            Console.WriteLine($"category: {workflow.FormattedValues["category"]}");
+            Console.WriteLine($"createdby: {workflow.FormattedValues["createdby"]}");
+            Console.WriteLine($"createdon: {workflow.FormattedValues["createdon"]}");
+            Console.WriteLine($"description: {workflow.GetAttributeValue<string>("description")}");
+            Console.WriteLine($"ismanaged: {workflow.FormattedValues["ismanaged"]}");
+            Console.WriteLine($"modifiedby: {workflow.FormattedValues["modifiedby"]}");
+            Console.WriteLine($"modifiedon: {workflow.FormattedValues["modifiedon"]}");
+            Console.WriteLine($"name: {workflow["name"]}");
+            Console.WriteLine($"ownerid: {workflow.FormattedValues["ownerid"]}");
+            Console.WriteLine($"statecode: {workflow.FormattedValues["statecode"]}");
+            Console.WriteLine($"type: {workflow.FormattedValues["type"]}");
+            Console.WriteLine($"workflowid: {workflow["workflowid"]}");
+            Console.WriteLine($"workflowidunique: {workflow["workflowidunique"]}");
+
+            // Get the flow runs for the current workflow
+            OutputFlowRuns(service, (Guid)workflow["workflowid"]);
+        }
+    }
+
+    /// <summary>
+    /// Outputs the runs of a specified flow and checks for failures in the past 24 hours
+    /// </summary>
+    /// <param name="service">Authenticated client implementing the IOrganizationService interface</param>
+    /// <param name="workflowId">The ID of the workflow (flow) to check</param>
+    public static void OutputFlowRuns(IOrganizationService service, Guid workflowId)
+    {
+        var query = new QueryExpression("workflowlog")
+        {
+            ColumnSet = new ColumnSet("status", "createdon"),
+            Criteria = new FilterExpression(LogicalOperator.And)
+            {
+                Conditions = {
+                    new ConditionExpression("workflowid", ConditionOperator.Equal, workflowId),
+                    new ConditionExpression("createdon", ConditionOperator.LastXHours, 24)
+                }
+            }
+        };
+
+        EntityCollection runs = service.RetrieveMultiple(query);
+
+        foreach (var run in runs.Entities)
+        {
+            string status = run.GetAttributeValue<OptionSetValue>("status")?.Value.ToString();
+            DateTime createdOn = run.GetAttributeValue<DateTime>("createdon");
+
+            if (status == "2") // Assuming status '2' corresponds to 'Failed'
+            {
+                Console.WriteLine($"Flow run failed at {createdOn}");
+            }
+        }
+    }
+}
