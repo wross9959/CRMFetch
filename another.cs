@@ -1,25 +1,38 @@
 using System;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Extensions.Logging;
-using Azure.Storage.Blobs;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
+using Azure.Messaging.ServiceBus;
+using Microsoft.Extensions.Logging;
 
-public static class BlobTriggerFunction
+public static class ServiceBusQueueSender
 {
-    [FunctionName("BlobTriggerFunction")]
-    public static async Task Run(
-        [BlobTrigger("your-container-name/{name}", Connection = "AzureWebJobsStorage")] BlobClient blobClient,
-        string name,
-        ILogger log)
-    {
-        if (blobClient.GetParentBlobContainerClient().GetBlobDirectoryClient(name).Exists())
-        {
-            log.LogInformation($"New directory detected: {name}");
+    private static string ServiceBusConnectionString = Environment.GetEnvironmentVariable("ServiceBusConnectionString");
+    private static string QueueName = "second-function-queue";
 
-            // Trigger the second function to run after 1 hour
-            var timeToRun = DateTimeOffset.UtcNow.AddHours(1);
-            var message = new { DirectoryName = name };
-            await ServiceBusQueueSender.SendMessageAsync("second-function-queue", message, timeToRun, log);
+    public static async Task SendMessageAsync(string queueName, object message, DateTimeOffset scheduleEnqueueTimeUtc, ILogger log)
+    {
+        var client = new ServiceBusClient(ServiceBusConnectionString);
+        var sender = client.CreateSender(queueName);
+        var jsonMessage = JsonSerializer.Serialize(message);
+        var serviceBusMessage = new ServiceBusMessage(Encoding.UTF8.GetBytes(jsonMessage))
+        {
+            ScheduledEnqueueTime = scheduleEnqueueTimeUtc
+        };
+
+        try
+        {
+            await sender.SendMessageAsync(serviceBusMessage);
+            log.LogInformation($"Scheduled message to queue '{queueName}' at {scheduleEnqueueTimeUtc}");
+        }
+        catch (Exception ex)
+        {
+            log.LogError($"Error sending message: {ex.Message}");
+        }
+        finally
+        {
+            await sender.DisposeAsync();
+            await client.DisposeAsync();
         }
     }
 }
