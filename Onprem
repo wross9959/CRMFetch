@@ -1,0 +1,25 @@
+using Microsoft.SharePoint.Client;
+using System;
+using System.Net;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        string siteUrl = "http://your-on-prem-sharepoint-site";
+        string username = "your-username";
+        string password = "your-password";
+
+        using (ClientContext context = new ClientContext(siteUrl))
+        {
+            context.Credentials = new NetworkCredential(username, password);
+
+            Web web = context.Web;
+            context.Load(web);
+            context.ExecuteQuery();
+            Console.WriteLine("Title: " + web.Title);
+
+            // Fetch and migrate data
+        }
+    }
+}
